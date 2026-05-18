@@ -43,7 +43,7 @@ MeshRescue includes a bootstrapping script that automatically configures your Py
 
 **macOS / Linux:**
 ```bash
-git clone https://github.com/YOUR_USERNAME/MeshRescue
+git clone https://github.com/shahabPourazadi/MeshRescue
 cd MeshRescue
 cp .env.example .env        # Add your HuggingFace token
 chmod +x start_demo.sh
