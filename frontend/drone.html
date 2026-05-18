@@ -23,7 +23,12 @@
         .loading-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 100; display: flex; flex-direction: column; justify-content: center; align-items: center; }
         .spinner { border: 4px solid #111; border-top: 4px solid #0f0; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        #mini-map { position: absolute; bottom: 20px; right: 20px; width: 250px; height: 180px; z-index: 10; border: 2px solid #0f0; border-radius: 5px; box-shadow: 0 0 10px rgba(0,255,0,0.5); }
+        .leaflet-container { background: #000; }
     </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 
@@ -69,6 +74,8 @@
         GATE TRIGGERED<br>
         <span style="font-size: 14px; opacity: 0.8;">WAKING GEMMA 4 E2B (TIER 2)...</span>
     </div>
+
+    <div id="mini-map"></div>
 </div>
 
 <script type="module">
@@ -108,12 +115,31 @@ let audioCtx;
 let currentLocation = "Locating GPS...";
 let gpsResolved = false; // True only when real GPS gave us a fix
 
+let miniMap;
+let marker;
+
+window.initMiniMap = function(lat, lng) {
+    if (!miniMap) {
+        miniMap = L.map('mini-map', { zoomControl: false, attributionControl: false }).setView([lat, lng], 15);
+        // Using a dark map tile variant to match the tactical UI
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(miniMap);
+        marker = L.marker([lat, lng]).addTo(miniMap);
+    } else {
+        miniMap.setView([lat, lng], 15);
+        marker.setLatLng([lat, lng]);
+    }
+};
+
 if (navigator.geolocation) {
     navigator.geolocation.watchPosition(
         (pos) => {
             // Real GPS success — upgrade location from .env baseline
             currentLocation = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
             gpsResolved = true;
+            if (typeof window.initMiniMap === 'function') window.initMiniMap(pos.coords.latitude, pos.coords.longitude);
         },
         (err) => {
             // Only hard-fail on PERMISSION_DENIED (code 1).
@@ -211,6 +237,10 @@ async function initializeAllModels() {
                 // Immediately apply .env baseline — real GPS will upgrade this if it resolves.
                 if (!gpsResolved) {
                     currentLocation = droneConfig.edge_location || "34.05220, -118.24370";
+                    const parts = currentLocation.split(',');
+                    if (parts.length === 2 && typeof window.initMiniMap === 'function') {
+                        window.initMiniMap(parseFloat(parts[0]), parseFloat(parts[1]));
+                    }
                 }
             }
         } catch(e) {
