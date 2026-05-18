@@ -367,7 +367,7 @@ async function startSensors() {
                     if (bestMatch.score > 0.1) { 
                         let t = latestTranscript ? ` ("${latestTranscript}")` : "";
                         audioClassOut.innerText = bestMatch.categoryName + t;
-                        if(["Scream", "Crying, sobbing", "Glass", "Explosion"].some(v => bestMatch.categoryName.includes(v))) {
+                        if(["Scream", "Crying, sobbing", "Glass", "Explosion", "Cough", "Groan", "Grunt", "Wheeze", "Yell", "Shout"].some(v => bestMatch.categoryName.includes(v))) {
                             audioClassOut.className = "highlight";
                         } else {
                             audioClassOut.className = "cyan";
@@ -497,19 +497,26 @@ function analyzeScene(posture, env, audio, poseLandmarks) {
     // Complex Gate logic combining all sensors
     const isLyingDown = posture === "SUPINE";
     const audioLower = audio.toLowerCase();
-    const isScreaming = audioLower.includes("scream") || 
-                        audioLower.includes("cry") || 
-                        audioLower.includes("siren") || 
-                        audioLower.includes("alarm") || 
-                        audioLower.includes("police") || 
-                        audioLower.includes("ambulance") ||
-                        audioLower.includes("sound effect") ||
-                        audioLower.includes("help") ||
-                        audioLower.includes("stuck") ||
-                        audioLower.includes("save me");
+    const isDistressAudio = audioLower.includes("scream") || 
+                            audioLower.includes("cry") || 
+                            audioLower.includes("groan") || 
+                            audioLower.includes("grunt") || 
+                            audioLower.includes("cough") || 
+                            audioLower.includes("wheeze") || 
+                            audioLower.includes("yell") || 
+                            audioLower.includes("shout") || 
+                            audioLower.includes("siren") || 
+                            audioLower.includes("alarm") || 
+                            audioLower.includes("police") || 
+                            audioLower.includes("ambulance") ||
+                            audioLower.includes("help") ||
+                            audioLower.includes("stuck") ||
+                            audioLower.includes("save me") ||
+                            audioLower.includes("hurt") ||
+                            audioLower.includes("injured");
     const isWaving = handStr.includes("Open_Palm") || handStr.includes("Victory");
     
-    const isDanger = isLyingDown || isScreaming || isWaving;
+    const isDanger = isLyingDown || isDistressAudio || isWaving;
     
     postureOut.innerText = posture;
     postureOut.className = isDanger ? "highlight" : "";
