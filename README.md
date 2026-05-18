@@ -58,14 +58,14 @@ chmod +x start_demo.sh
 5.  Starts the FastAPI backend on port 8000.
 6.  Opens `commander.html` and `drone.html` in your browser.
 
-### 3. Testing the Application
+### 3. Running the Live Demo (Local Simulation)
 1.  Arrange the **Commander** and **Drone** windows side-by-side (or open on separate devices).
 2.  On the **Drone** screen, wait for MediaPipe to detect your posture.
-3.  Say something out loud (e.g., *"Help! I need a medic!"*) — the microphone records 8 seconds.
-4.  Click **"Capture & Analyze"**.
+3.  Say something out loud or cough (e.g., *"Help! I need a medic!"*) — the microphone records 8 seconds.
+4.  The browser's "Instinct Gate" automatically wakes up the local Gemma 4 backend when a distress sound or person is detected, or you can manually click **"Capture & Analyze"**.
 5.  Gemma 4 analyzes both the image and audio entirely offline. Watch the backend terminal for the real-time token stream.
 6.  If priority is Critical or High, Gemma 4 will autonomously call `dispatch_rescue_team` — a 🚨 banner appears on the Commander card.
-7.  The LoRa stub card appears on Commander instantly. The full image/audio uploads automatically if WiFi is available.
+7.  The LoRa stub card appears on Commander instantly via a simulated airgap websocket. The full image/audio uploads automatically if WiFi is available.
 
 ### 4. Connecting from a Phone or Tablet
 1.  Ensure your phone and Compute Node are on the same Wi-Fi network.
@@ -74,11 +74,14 @@ chmod +x start_demo.sh
 
 > **iOS note:** Safari restricts camera/microphone on plain HTTP. For full functionality, tunnel with `ngrok http 8000` and use the `https://` URL it provides.
 
-### 5. Raspberry Pi Setup (Compute Node)
-```bash
-sudo apt update && sudo apt install -y python3 python3-pip git ffmpeg cmake build-essential
-# Then follow the standard setup above — Cactus supports ARM64 natively
-```
+### 5. True Edge Hardware Deployment (Raspberry Pi / Drone)
+For a true off-grid "Compute Backpack" deployment:
+1. Flash a Raspberry Pi 5 (8GB) or Nvidia Jetson with Ubuntu.
+2. Run `sudo apt update && sudo apt install -y python3 python3-pip git ffmpeg cmake build-essential`
+3. Plug a Meshtastic LoRa Radio (e.g., LILYGO T-Echo) into the Pi's USB port.
+4. In the `.env` file, set `LORA_DEVICE=/dev/ttyACM0` (or your specific USB port).
+5. Run `uvicorn backend.main:app --host 0.0.0.0 --port 8000` on the Pi.
+6. The Pi broadcasts a local offline Wi-Fi hotspot. A paramedic connects their smartphone to this Wi-Fi, navigates to `http://<PI_IP>:8000/app/drone.html`, and acts as the mobile sensor. The Pi securely handles the heavy Gemma 4 inference and physical LoRa radio transmission from inside the backpack.
 
 ## Acknowledgements
 *   [Cactus Compute](https://github.com/cactus-compute/cactus) — on-device multimodal inference engine with Gemma 4 support.
