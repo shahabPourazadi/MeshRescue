@@ -11,7 +11,7 @@ By simultaneously analyzing real-time images and raw audio waveforms, the system
 *   **Two-Phase LoRa + WiFi Sync:** Critical text alerts travel over LoRa mesh radio instantly. Full image and audio evidence uploads asynchronously over WiFi, dynamically filling the Commander's incident card.
 
 ## Architecture
-1.  **Field Node (`drone.html`):** Runs in any browser on any device — phone, tablet, laptop, or Raspberry Pi with Chromium. Captures images and 8-second audio clips, detects poses with MediaPipe.
+1.  **Field Node (`drone.html`):** Runs in any browser on any device — phone, tablet, laptop, or Raspberry Pi with Chromium. Captures images and 8-second audio clips. Uses an ultra-low-power "Instinct Gate" via **MediaPipe Vision (Pose/Hand Gestures)** and **MediaPipe YAMNet (Audio Classification)** to detect distress sounds (coughs, groans) and human bodies before waking up the LLM.
 2.  **Compute Node (`main.py`):** A headless Python backend running FastAPI + Cactus Python SDK. Runs on the device with the most compute (Mac, Linux server, or Raspberry Pi 5). Hosts the model and all inference.
 3.  **Commander Dashboard (`commander.html`):** Runs in any browser on any device on the same network. Receives real-time WebSocket triage data and renders prioritized incident cards on a live Leaflet map.
 
