@@ -7,24 +7,26 @@ from main import app
 
 client = TestClient(app)
 
-def test_triage_processing_tracer_bullet():
+def test_analyze_only():
     """
-    Tracer Bullet: Submitting a valid payload to /api/triage successfully returns a structured JSON triage report.
-    This tests the public behavior without mocking the internal `analyze_with_gemma` function.
-    Because we don't have a real Ollama instance guaranteed during testing, it should gracefully fall back to the mock.
+    Submitting a valid payload to /api/analyze_only successfully returns a structured JSON triage report.
+    This tests the public behavior without triggering WebSockets or LoRa.
     """
     payload = {
+        "packet_id": "test_123",
+        "drone_id": "TEST-DRONE-01",
+        "location": "34.05, -118.24",
         "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
-        "pose_data": {"landmarks": [{"x": 0.5, "y": 0.5, "z": 0.1}]}
+        "pose_data": {"landmarks": [{"x": 0.5, "y": 0.5, "z": 0.1}], "posture": "SUPINE"}
     }
     
-    response = client.post("/api/triage", json=payload)
+    response = client.post("/api/analyze_only", json=payload)
     
     # Assert
     assert response.status_code == 200
     json_data = response.json()
     
-    assert json_data["status"] == "transmitted"
+    assert json_data["status"] == "analyzed"
     assert "data" in json_data
     
     # Check that the data conforms to our schema
@@ -37,6 +39,7 @@ def test_triage_processing_tracer_bullet():
     # Check for the added telemetry fields
     assert "gps_coordinates" in triage_data
     assert "drone_id" in triage_data
+    assert "packet_id" in triage_data
 
 def test_invalid_payload_rejection():
     """
@@ -44,11 +47,12 @@ def test_invalid_payload_rejection():
     the API should reject it with a 422 Validation Error.
     """
     invalid_payload = {
+        "packet_id": "test_123",
         "pose_data": {"landmarks": [{"x": 0.5, "y": 0.5, "z": 0.1}]}
         # 'image' is missing
     }
     
-    response = client.post("/api/triage", json=invalid_payload)
+    response = client.post("/api/analyze_only", json=invalid_payload)
     
     assert response.status_code == 422
     assert "detail" in response.json()
@@ -59,8 +63,27 @@ def test_telemetry_endpoint():
     """
     payload = {
         "posture": "UPRIGHT / MOVING",
-        "status": "safe"
+        "status": "safe",
+        "location": "0,0",
+        "drone_id": "TEST",
+        "raw_data": {}
     }
     response = client.post("/api/telemetry", json=payload)
     assert response.status_code == 200
-    assert response.json()["status"] == "transmitted"
+    assert response.json()["status"] == "ok"
+
+def test_lora_broadcast_endpoint():
+    """
+    Test the manual LoRa broadcast route.
+    """
+    payload = {
+        "data": {
+            "packet_id": "test_123",
+            "drone_id": "TEST-DRONE-01",
+            "priority_level": 1,
+            "casualty_status": "Severe trauma"
+        }
+    }
+    response = client.post("/api/lora_broadcast", json=payload)
+    assert response.status_code == 200
+    assert response.json()["status"] == "transmitted_lora"
