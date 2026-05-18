@@ -522,7 +522,8 @@
             }
 
             if (type === 'audio') {
-                if (value.includes('scream') || value.includes('cry')) return iconBase + `<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+                const isDistress = ['scream', 'cry', 'cough', 'groan', 'grunt', 'wheeze', 'yell', 'shout', 'hurt', 'injured'].some(v => value.includes(v));
+                if (isDistress) return iconBase + `<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
                 if (value.includes('siren') || value.includes('alarm') || value.includes('police')) return iconBase + `<path d="M22 17H2c0-6.5 5.5-8 10-8s10 1.5 10 8z"/><circle cx="12" cy="5" r="2"/></svg>`;
                 if (value.includes('speech')) return iconBase + `<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`;
                 if (value.includes('silence')) return iconBase + `<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>`;

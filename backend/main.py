@@ -197,12 +197,18 @@ def analyze_with_gemma(payload: FramePayload) -> dict:
     Calls a local Ollama instance running Gemma 4 E2B Multimodal.
     """
     has_audio = bool(payload.audio_clip)
-    audio_instruction = (
-        "An AUDIO CLIP from the scene has been attached. Listen carefully and transcribe any speech. "
-        "React to screams, moans, cries for help, or distress sounds with a high-priority score."
-        if has_audio else
-        f"No live audio clip — use the browser audio classifier label only: {payload.pose_data.get('audio', 'Unknown')}"
-    )
+    yamnet_label = payload.pose_data.get('audio', 'Unknown')
+    if has_audio:
+        audio_instruction = (
+            f"An AUDIO CLIP is attached. The edge sensor (YAMNet) pre-classified the sound as: '{yamnet_label}'. "
+            "Listen carefully to confirm this. Pay extreme attention to ANY distress sounds including human "
+            "(coughs, groans, grunts, wheezing, screams, crying) or animal (barks, meows, whimpers) and treat them as an active emergency."
+        )
+    else:
+        audio_instruction = (
+            f"No live audio clip attached. The edge sensor (YAMNet) confidently detected: '{yamnet_label}'. "
+            "You MUST treat this label as confirmed audio evidence of the scene."
+        )
 
     prompt = f"""
     You are an emergency rescue drone AI analyzing a live scene.
@@ -227,7 +233,7 @@ def analyze_with_gemma(payload: FramePayload) -> dict:
     }}
     ```
     CRITICAL RULE: priority_level is 1 (Critical life threat) to 5 (Safe/Normal).
-    If audio contains screams, cries for help, or distress — ALWAYS set priority 1 or 2.
+    If the audio clip OR the sensor telemetry indicates screams, cries for help, groans, heavy coughing, or animal distress — ALWAYS set priority 1 or 2.
     If person is SUPINE/unconscious — ALWAYS set priority 1 or 2.
     """
     
