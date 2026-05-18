@@ -1,0 +1,18 @@
+# Secrets — never commit these
+.env
+
+# Exclude public submission docs and Claude folder
+.claude/
+
+__pycache__/
+*.pyc
+*.pyo
+.Python
+
+# Cactus compiled engine and model weights (too large for git)
+backend/cactus/build/
+backend/cactus/weights/
+backend/cactus/cactus/cactus_binary
+
+# macOS
+.DS_Store

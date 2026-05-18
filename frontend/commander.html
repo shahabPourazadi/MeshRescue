@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Commander Ground Station | MeshRescue</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- Leaflet Map CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background: #0b0c10;
+            color: #c5c6c7;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 350px;
+            background: #1f2833;
+            padding: 20px;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+        }
+
+        .main-map {
+            flex-grow: 1;
+            position: relative;
+        }
+
+        #real-map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 1;
+            background: #111;
+        }
+
+        h1 {
+            font-size: 20px;
+            color: #66fcf1;
+            text-transform: uppercase;
+            margin-top: 0;
+            letter-spacing: 1px;
+            border-bottom: 2px solid #45a29e;
+            padding-bottom: 10px;
+        }
+
+        .model-status {
+            margin-bottom: 20px;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .pulse {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #66fcf1;
+            border-radius: 50%;
+            margin-right: 5px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+                box-shadow: 0 0 0 0 rgba(102, 252, 241, 0.7);
+            }
+
+            70% {
+                opacity: 0;
+                box-shadow: 0 0 0 10px rgba(102, 252, 241, 0);
+            }
+
+            100% {
+                opacity: 0;
+            }
+        }
+
+        .triage-feed {
+            flex-grow: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .triage-card {
+            background: #0b0c10;
+            border: 1px solid #45a29e;
+            border-radius: 8px;
+            padding: 15px;
+            position: relative;
+            border-left: 5px solid #45a29e;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.5);
+        }
+
+        .triage-card.priority-1 {
+            border-left-color: #ff003c;
+            border-color: rgba(255, 0, 60, 0.3);
+        }
+
+        .triage-card.priority-2 {
+            border-left-color: #ff6600;
+            border-color: rgba(255, 102, 0, 0.3);
+        }
+
+        .triage-card.priority-3 {
+            border-left-color: #ffcc00;
+            border-color: rgba(255, 204, 0, 0.3);
+        }
+
+        .triage-card.priority-4 {
+            border-left-color: #66fcf1;
+            border-color: rgba(102, 252, 241, 0.3);
+        }
+
+        .triage-card.priority-5 {
+            border-left-color: #888888;
+            border-color: rgba(136, 136, 136, 0.3);
+        }
+
+        .triage-filter-btn {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 20px;
+            padding: 3px 10px;
+            font-size: 0.68rem;
+            font-family: monospace;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            color: #aaa;
+        }
+        .triage-filter-btn:hover {
+            background: rgba(255,255,255,0.1);
+            border-color: rgba(255,255,255,0.3);
+        }
+        .triage-filter-active {
+            background: rgba(102, 252, 241, 0.12) !important;
+            border-color: rgba(102, 252, 241, 0.5) !important;
+            color: #66fcf1 !important;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 9px;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .badge-critical {
+            background: rgba(255, 0, 60, 0.2);
+            color: #ff003c;
+        }
+
+        .badge-drone {
+            background: rgba(102, 252, 241, 0.1);
+            color: #66fcf1;
+        }
+
+        .card-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: white;
+        }
+
+        .card-details {
+            font-size: 12px;
+            color: #aaa;
+            line-height: 1.4;
+        }
+
+        .json-block {
+            background: #050505;
+            padding: 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 10px;
+            color: #45a29e;
+            margin-top: 10px;
+            overflow-x: auto;
+        }
+
+        /* Custom Leaflet Dark Mode Tiles */
+        .leaflet-layer,
+        .leaflet-control-zoom-in,
+        .leaflet-control-zoom-out,
+        .leaflet-control-attribution {
+            filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+        }
+
+        /* Map Marker Ping */
+        .map-marker {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+        }
+
+        .ring {
+            width: 40px;
+            height: 40px;
+            border: 2px solid #ff003c;
+            border-radius: 50%;
+            animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+            position: absolute;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            background: #ff003c;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #ff003c;
+        }
+
+        @keyframes ping {
+
+            75%,
+            100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+
+        /* Telemetry Overlay */
+        .telemetry-panel {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 450px;
+            background: rgba(11, 12, 16, 0.85);
+            backdrop-filter: blur(10px);
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid rgba(102, 252, 241, 0.2);
+            box-shadow: -5px 0 15px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="sidebar">
+        <div
+            style="background: rgba(102, 252, 241, 0.05); padding: 20px; border-radius: 8px; border: 1px solid rgba(102, 252, 241, 0.2); margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+            <h1
+                style="display: flex; align-items: center; gap: 10px; font-size: 1.2rem; border-bottom: none; padding-bottom: 0; margin-bottom: 15px;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#66fcf1" stroke-width="2">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                </svg>
+                COMMAND CENTER
+            </h1>
+            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.8rem;">
+                <div
+                    style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 4px; border-left: 3px solid #00ff9d;">
+                    <span style="color: #aaa;">Edge AI Engine</span>
+                    <span style="color: #00ff9d; font-weight: bold; display: flex; align-items: center; gap: 6px;">
+                        <span class="pulse" style="width: 6px; height: 6px; margin: 0;"></span> Gemma 4 E2B
+                    </span>
+                </div>
+                <div
+                    style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 4px; border-left: 3px solid #66fcf1;">
+                    <span style="color: #aaa;">Radio Protocol</span>
+                    <span style="color: #66fcf1; font-weight: bold;">E2B LoRa Mesh</span>
+                </div>
+                <div
+                    style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 4px; border-left: 3px solid #ffcc00;">
+                    <span style="color: #aaa;">Gateway Status</span>
+                    <span style="color: #ffcc00; font-weight: bold;">Listening for Telemetry...</span>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 5px;">
+                    <button onclick="clearDB('triage_logs')"
+                        style="flex: 1; background: rgba(255, 51, 102, 0.1); color: #ff3366; border: 1px solid rgba(255,51,102,0.3); padding: 6px; border-radius: 4px; font-size: 0.7rem; cursor: pointer; transition: all 0.2s;">Wipe
+                        Triage DB</button>
+                    <button onclick="clearDB('telemetry_logs')"
+                        style="flex: 1; background: rgba(102, 252, 241, 0.1); color: #66fcf1; border: 1px solid rgba(102,252,241,0.3); padding: 6px; border-radius: 4px; font-size: 0.7rem; cursor: pointer; transition: all 0.2s;">Wipe
+                        Telemetry DB</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Triage Filter Bar -->
+        <div id="triage-filter-bar" style="display: flex; gap: 6px; padding: 10px 15px; border-bottom: 1px solid rgba(255,255,255,0.07); flex-wrap: wrap; align-items: center;">
+            <span style="color: #666; font-size: 0.7rem; font-family: monospace; letter-spacing: 0.05em; margin-right: 4px;">PRIORITY</span>
+            <button onclick="applyTriageFilter('all', this)"   class="triage-filter-btn triage-filter-active" data-pf="all">ALL</button>
+            <button onclick="applyTriageFilter('1', this)"     class="triage-filter-btn" data-pf="1" style="color:#ff2255;">CRITICAL</button>
+            <button onclick="applyTriageFilter('2', this)"     class="triage-filter-btn" data-pf="2" style="color:#ff6600;">HIGH</button>
+            <button onclick="applyTriageFilter('3', this)"     class="triage-filter-btn" data-pf="3" style="color:#ffcc00;">MODERATE</button>
+            <button onclick="applyTriageFilter('4', this)"     class="triage-filter-btn" data-pf="4" style="color:#66fcf1;">LOW</button>
+            <button onclick="applyTriageFilter('5', this)"     class="triage-filter-btn" data-pf="5" style="color:#888;">SAFE</button>
+        </div>
+
+        <div class="triage-feed" id="triage-feed">
+            <div
+                style="color: #666; text-align: center; margin-top: 20px; font-size: 12px; border: 1px dashed rgba(255,255,255,0.1); padding: 30px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    style="opacity: 0.5;">
+                    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                </svg>
+                Awaiting multi-modal signals from Edge Nodes...
+            </div>
+        </div>
+    </div>
+
+    <div class="main-map">
+        <div id="real-map"></div>
+
+        <div class="telemetry-panel">
+            <div style="padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2 style="margin: 0; font-size: 1.2rem; display: flex; align-items: center; gap: 10px;">
+                        <span class="pulse" style="width: 10px; height: 10px;"></span> TELEMETRY
+                    </h2>
+                    <button id="toggle-filters-btn"
+                        style="background: rgba(0,0,0,0.5); color: #66fcf1; border: 1px solid rgba(255,255,255,0.2); padding: 5px 10px; border-radius: 5px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.2s;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                        </svg>
+                        Filters
+                    </button>
+                </div>
+
+                <div id="advanced-filters"
+                    style="display: none; flex-direction: column; gap: 15px; font-size: 0.85rem; margin-top: 15px; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+
+                    <div style="display: flex; flex-direction: column; gap: 5px;">
+                        <label style="color: #888; font-weight: 500;">Status Level</label>
+                        <select id="log-filter"
+                            style="background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(102, 252, 241, 0.3); padding: 8px; border-radius: 6px; outline: none; cursor: pointer; width: 100%; box-sizing: border-box;">
+                            <option value="all">All Events</option>
+                            <option value="danger">Danger Only</option>
+                            <option value="safe">Safe Only</option>
+                        </select>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 5px;">
+                        <label style="color: #888; font-weight: 500;">Date & Time Range</label>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <input type="date" id="filter-date"
+                                style="background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(102, 252, 241, 0.3); padding: 8px; border-radius: 6px; width: 100%; box-sizing: border-box; outline: none; cursor: pointer; color-scheme: dark;">
+                            <input type="time" id="filter-time"
+                                style="background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(102, 252, 241, 0.3); padding: 8px; border-radius: 6px; width: 100%; box-sizing: border-box; outline: none; cursor: pointer; color-scheme: dark;">
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div style="display: flex; flex-direction: column; gap: 5px;">
+                            <label style="color: #888; font-weight: 500;">Posture</label>
+                            <select id="filter-posture"
+                                style="background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(102, 252, 241, 0.3); padding: 8px; border-radius: 6px; width: 100%; box-sizing: border-box; outline: none; cursor: pointer;">
+                                <option value="all">Any Posture</option>
+                                <option value="upright">Upright</option>
+                                <option value="supine">Supine (Laying)</option>
+                                <option value="sitting">Sitting</option>
+                            </select>
+                        </div>
+
+                        <div style="display: flex; flex-direction: column; gap: 5px;">
+                            <label style="color: #888; font-weight: 500;">Gestures</label>
+                            <select id="filter-hands"
+                                style="background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(102, 252, 241, 0.3); padding: 8px; border-radius: 6px; width: 100%; box-sizing: border-box; outline: none; cursor: pointer;">
+                                <option value="all">Any Gesture</option>
+                                <option value="open_palm">Open Palm (Stop)</option>
+                                <option value="victory">Victory (Peace)</option>
+                                <option value="0 hands">No Hands</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="telemetry-feed"
+                style="flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px; font-family: monospace; font-size: 0.9rem;">
+                <!-- Logs will appear here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet Map JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // Initialize Leaflet Map
+        const map = L.map('real-map', { zoomControl: false }).setView([37.7749, -122.4194], 3); // Default view
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Custom Drone Marker Icon
+        const droneIcon = L.divIcon({
+            className: 'custom-div-icon',
+            html: `<div class="map-marker"><div class="ring"></div><div class="dot"></div></div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+        });
+        let droneMarker = L.marker([37.7749, -122.4194], { icon: droneIcon }).addTo(map);
+        let mapCentered = false;
+
+        // UI Elements
+        const telemetryFeed = document.getElementById('telemetry-feed');
+        const triageFeed = document.getElementById('triage-feed');
+        const logFilter = document.getElementById('log-filter');
+        const filterPosture = document.getElementById('filter-posture');
+        const filterHands = document.getElementById('filter-hands');
+
+        let currentFilter = 'all';
+        let currentTriageFilter = 'all';
+
+        function applyTriageFilter(priority, btn) {
+            currentTriageFilter = priority;
+            // Update active pill
+            document.querySelectorAll('.triage-filter-btn').forEach(b => b.classList.remove('triage-filter-active'));
+            if (btn) btn.classList.add('triage-filter-active');
+            // Show/hide cards
+            document.querySelectorAll('#triage-feed .triage-card').forEach(card => {
+                const p = card.dataset.priority;
+                card.style.display = (priority === 'all' || p === priority) ? 'block' : 'none';
+            });
+        }
+
+        function applyFilters() {
+            const statusVal = logFilter.value;
+            const postureVal = filterPosture.value.toLowerCase();
+            const handsVal = filterHands.value.toLowerCase();
+
+            currentFilter = statusVal;
+
+            const logs = telemetryFeed.querySelectorAll('.log-entry');
+            logs.forEach(log => {
+                const rawDataPanel = log.querySelector('.raw-data-panel');
+                if (!rawDataPanel) return;
+
+                const rawDataText = rawDataPanel.innerText.toLowerCase();
+                const status = log.dataset.status;
+                let show = true;
+
+                if (statusVal !== 'all' && statusVal !== status) show = false;
+
+                if (postureVal !== 'all') {
+                    if (!rawDataText.includes(`"posture": "${postureVal}`)) show = false;
+                }
+
+                if (handsVal !== 'all') {
+                    if (!rawDataText.includes(handsVal)) show = false;
+                }
+
+                log.style.display = show ? 'flex' : 'none';
+            });
+        }
+
+        const toggleBtn = document.getElementById('toggle-filters-btn');
+        const advancedFilters = document.getElementById('advanced-filters');
+
+        toggleBtn.addEventListener('click', () => {
+            if (advancedFilters.style.display === 'none') {
+                advancedFilters.style.display = 'flex';
+                toggleBtn.style.background = 'rgba(102, 252, 241, 0.2)';
+            } else {
+                advancedFilters.style.display = 'none';
+                toggleBtn.style.background = 'rgba(0,0,0,0.5)';
+            }
+        });
+
+        logFilter.addEventListener('change', applyFilters);
+        filterPosture.addEventListener('change', applyFilters);
+        filterHands.addEventListener('change', applyFilters);
+
+        // Smart auto-scroll logic
+        const scrollToBottom = (element) => {
+            // Only scroll if user is already within 50px of the bottom
+            const isNearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 50;
+            if (isNearBottom) {
+                element.scrollTop = element.scrollHeight;
+            }
+        };
+
+        function getIcon(type, value) {
+            if (!value) value = '';
+            value = value.toLowerCase();
+            const iconBase = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" title="${value}">`;
+
+            if (type === 'posture') {
+                if (value.includes('supine') || value.includes('lay') || value.includes('sleep')) return iconBase + `<path d="M4 15h16v-2H4v2z"/><circle cx="6" cy="11" r="2"/></svg>`;
+                if (value.includes('upright') || value.includes('stand')) return iconBase + `<circle cx="12" cy="5" r="2"/><path d="M12 7v8M8 11h8M10 21l2-6 2 6"/></svg>`;
+                if (value.includes('sit')) return iconBase + `<path d="M12 12H7M12 12V5M12 12l4 4v5"/></svg>`;
+                return iconBase + `<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+            }
+
+            if (type === 'hand') {
+                if (value.includes('0')) return iconBase + `<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`;
+                if (value.includes('2')) return iconBase + `<path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>`;
+                if (value.includes('victory') || value.includes('peace')) return iconBase + `<path d="M11 11V5a2 2 0 0 1 4 0v6M7 11V7a2 2 0 0 1 4 0v4M15 11v6a4 4 0 0 1-8 0v-4"></path></svg>`;
+                // Default 1 hand / open palm
+                return iconBase + `<path d="M18 11V6a2 2 0 0 0-4 0v4a2 2 0 0 0-4 0V4a2 2 0 0 0-4 0v6a2 2 0 0 0-4 0v9a8 8 0 0 0 16 0v-8z"></path></svg>`;
+            }
+
+            if (type === 'env') {
+                if (value.includes('indoor') || value.includes('screen') || value.includes('room')) return iconBase + `<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`;
+                if (value.includes('outdoor') || value.includes('nature') || value.includes('tree')) return iconBase + `<path d="M12 22V13M7 13A5 5 0 0 1 17 13H7z"></path></svg>`;
+                // Unknown env
+                return iconBase + `<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+            }
+
+            if (type === 'audio') {
+                if (value.includes('scream') || value.includes('cry')) return iconBase + `<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+                if (value.includes('siren') || value.includes('alarm') || value.includes('police')) return iconBase + `<path d="M22 17H2c0-6.5 5.5-8 10-8s10 1.5 10 8z"/><circle cx="12" cy="5" r="2"/></svg>`;
+                if (value.includes('speech')) return iconBase + `<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>`;
+                if (value.includes('silence')) return iconBase + `<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>`;
+                // Unknown / Normal audio
+                return iconBase + `<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`;
+            }
+            return '';
+        }
+
+        let ws;
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8000/ws/commander');
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (cmdDb) {
+                    const storeName = data.type === "triage" ? "triage_logs" : "telemetry_logs";
+                    const tx = cmdDb.transaction(storeName, "readwrite");
+                    tx.objectStore(storeName).add(data);
+                }
+                processMessage(data, true);
+            };
+
+            ws.onclose = () => {
+                console.log("WebSocket disconnected. Reconnecting in 3s...");
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = (err) => {
+                console.error("WebSocket error:", err);
+                ws.close();
+            };
+        }
+        
+        connectWebSocket();
+
+        // ── Map fly-to helper ────────────────────────────────────────────────
+        function flyToLocation(locationStr) {
+            if (!locationStr || !locationStr.includes(',')) return;
+            const parts = locationStr.split(',');
+            if (parts.length < 2) return;
+            const lat = parseFloat(parts[0]);
+            const lng = parseFloat(parts[1]);
+            if (isNaN(lat) || isNaN(lng)) return;
+
+            // Smooth fly animation
+            map.flyTo([lat, lng], 18, { animate: true, duration: 0.8 });
+
+            // Flash a temporary highlight ring on the spot
+            const highlight = L.circleMarker([lat, lng], {
+                radius: 22,
+                color: '#66fcf1',
+                fillColor: '#66fcf1',
+                fillOpacity: 0.15,
+                weight: 2,
+                dashArray: '6 4'
+            }).addTo(map);
+            setTimeout(() => map.removeLayer(highlight), 2500);
+        }
+
+        function processMessage(data, isLive) {
+            if (data.type === "telemetry") {
+                const div = document.createElement('div');
+                div.className = 'log-entry';
+                div.dataset.status = data.status; // "danger" or "safe"
+                const timestamp = new Date().toLocaleTimeString();
+
+                let statusColor = data.status === 'danger' ? '#ff3366' : '#00ff9d';
+                let bgStyle = data.status === 'danger' ? 'background: rgba(255, 51, 102, 0.1); border-left: 4px solid #ff3366;' : 'background: rgba(255, 255, 255, 0.05); border-left: 4px solid #00ff9d;';
+
+                div.style.cssText = `
+                display: ${currentFilter === 'all' || currentFilter === data.status ? 'flex' : 'none'};
+                flex-direction: column;
+                padding: 6px 10px;
+                border-radius: 4px;
+                font-size: 0.85rem;
+                ${bgStyle}
+                flex-shrink: 0;
+                cursor: pointer;
+            `;
+
+                // Build extended JSON data to include all fields
+                const extendedData = data;
+
+                const postureIcon = getIcon('posture', data.raw_data?.posture);
+                const handIcon = getIcon('hand', data.raw_data?.hand_gesture);
+                const envIcon = getIcon('env', data.raw_data?.environment);
+                const audioIcon = getIcon('audio', data.raw_data?.audio);
+
+                div.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; white-space: nowrap;">
+                    <span style="color: #aaa; font-size: 0.75rem; flex-shrink: 0; min-width: 80px;">[${timestamp}]</span>
+                    <div style="flex: 1; color: ${statusColor}; display: flex; justify-content: center; gap: 12px; align-items: center;">
+                        ${postureIcon}
+                        ${audioIcon}
+                    </div>
+                    <span style="color: #66fcf1; font-size: 0.7rem; display: flex; align-items: center; gap: 5px; min-width: 130px; justify-content: flex-end; flex-shrink: 0; font-family: monospace;">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+                        ${data.drone_id || "UNKNOWN-NODE"}
+                    </span>
+                </div>
+                <div class="raw-data-panel" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); color: #45a29e; font-size: 10px; overflow-x: auto;">
+                    <pre style="margin: 0;">${JSON.stringify(extendedData, null, 2)}</pre>
+                </div>
+            `;
+
+                div.onclick = () => {
+                    // Fly the map to this row's GPS location first
+                    flyToLocation(data.location);
+                    const panel = div.querySelector('.raw-data-panel');
+                    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+                };
+                telemetryFeed.prepend(div);
+
+                // Force scroll position to the top to counter browser scroll-anchoring
+                telemetryFeed.scrollTop = 0;
+
+                if (telemetryFeed.children.length > 100) {
+                    telemetryFeed.removeChild(telemetryFeed.lastChild);
+                }
+
+                // Update Leaflet Map if valid GPS
+                if (data.location && data.location.includes(',')) {
+                    const locParts = data.location.split(',');
+                    if (locParts.length === 2) {
+                        const lat = parseFloat(locParts[0]);
+                        const lng = parseFloat(locParts[1]);
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            const droneId = data.drone_id || 'UNKNOWN';
+                            if (!window.deviceMarkers) window.deviceMarkers = {};
+
+                            if (!window.deviceMarkers[droneId]) {
+                                // Create new marker for this device
+                                const pingIcon = L.divIcon({
+                                    className: 'map-marker',
+                                    html: `<div class="ring"></div><div class="dot"></div><div style="position: absolute; top: 15px; background: rgba(0,0,0,0.7); color: white; padding: 2px 4px; font-size: 8px; white-space: nowrap; border-radius: 2px;">${droneId}</div>`,
+                                    iconSize: [20, 20]
+                                });
+                                window.deviceMarkers[droneId] = L.marker([lat, lng], { icon: pingIcon }).addTo(map);
+                            } else {
+                                window.deviceMarkers[droneId].setLatLng([lat, lng]);
+                            }
+
+                            if (!mapCentered) {
+                                map.setView([lat, lng], 18);
+                                mapCentered = true;
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+
+            if (data.type === "triage") {
+                const triageFeedObj = document.getElementById('triage-feed');
+                if (triageFeedObj.children.length === 1 && triageFeedObj.children[0].tagName === "DIV" && triageFeedObj.children[0].style.textAlign === "center") {
+                    triageFeedObj.innerHTML = "";
+                }
+                const priorityLvl = parseInt(data.priority_level) || 5;
+                const priorityClass = `priority-${priorityLvl}`;
+
+                let badgeHtml = '';
+                if (priorityLvl === 1) badgeHtml = '<span class="badge badge-critical">CRITICAL</span>';
+                else if (priorityLvl === 2) badgeHtml = '<span class="badge" style="background: rgba(255, 102, 0, 0.2); color: #ff6600;">HIGH</span>';
+                else if (priorityLvl === 3) badgeHtml = '<span class="badge" style="background: rgba(255, 204, 0, 0.2); color: #ffcc00;">MODERATE</span>';
+                else if (priorityLvl === 4) badgeHtml = '<span class="badge" style="background: rgba(102, 252, 241, 0.2); color: #66fcf1;">LOW</span>';
+                else badgeHtml = '<span class="badge" style="background: rgba(136, 136, 136, 0.2); color: #aaa;">SAFE</span>';
+
+                const displayData = {
+                    timestamp: data.timestamp || new Date().toISOString(),
+                    ...data
+                };
+                // Use stored timestamp for display if available
+                const displayTime = data.timestamp
+                    ? new Date(data.timestamp).toLocaleTimeString() + ' - ' + new Date(data.timestamp).toLocaleDateString()
+                    : new Date().toLocaleTimeString() + ' - ' + new Date().toLocaleDateString();
+
+                // Deduplication & Media Update Logic
+                if (data.packet_id) {
+                    const existingCard = document.getElementById(data.packet_id);
+                    if (existingCard) {
+                        const details = existingCard.querySelector('.triage-details');
+                        if (data.image && !details.querySelector('.triage-image')) {
+                            const imgContainer = document.createElement('div');
+                            imgContainer.innerHTML = `<img class="triage-image" src="${data.image}" style="width: 100%; margin-top: 15px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2);">`;
+                            details.insertBefore(imgContainer.firstElementChild, details.querySelector('.json-block'));
+                        }
+                        if (data.audio_clip && !details.querySelector('.triage-audio')) {
+                            const audioContainer = document.createElement('div');
+                            audioContainer.className = 'triage-audio';
+                            audioContainer.innerHTML = `<div style="margin-top: 15px;"><strong style="color: #fff; font-size: 0.85rem; display: block; margin-bottom: 5px;">Ambient Audio (8s):</strong><audio controls src="${data.audio_clip}" style="width: 100%; height: 35px; border-radius: 4px; outline: none;"></audio></div>`;
+                            details.insertBefore(audioContainer, details.querySelector('.json-block'));
+                        }
+                        return; // Do not create a new card
+                    }
+                }
+
+                const card = document.createElement('div');
+                if (data.packet_id) card.id = data.packet_id;
+                card.className = `triage-card ${priorityClass}`;
+                card.dataset.priority = String(priorityLvl); // used by applyTriageFilter
+                card.style.animation = "fadeIn 0.3s ease-out";
+                card.style.cursor = "pointer";
+                // Apply current filter immediately
+                if (currentTriageFilter !== 'all' && String(priorityLvl) !== currentTriageFilter) {
+                    card.style.display = 'none';
+                }
+
+                const imageHtml = data.image ? `<img class="triage-image" src="${data.image}" style="width: 100%; margin-top: 15px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2);">` : '';
+                const audioHtml = data.audio_clip ? `<div class="triage-audio" style="margin-top: 15px;"><strong style="color: #fff; font-size: 0.85rem; display: block; margin-bottom: 5px;">Ambient Audio (8s):</strong><audio controls src="${data.audio_clip}" style="width: 100%; height: 35px; border-radius: 4px; outline: none;"></audio></div>` : '';
+                const dispatchHtml = data.dispatch ? `
+                    <div class="dispatch-banner" style="margin-top: 10px; background: rgba(255,51,102,0.12); border: 1px solid rgba(255,51,102,0.4); border-radius: 6px; padding: 8px 12px; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 1rem;">🚨</span>
+                        <div>
+                            <div style="color: #ff3366; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em;">RESCUE TEAM DISPATCHED BY AI</div>
+                            <div style="color: #aaa; font-size: 0.7rem; margin-top: 2px;">${data.dispatch.reason || ''} &mdash; via <strong style="color:#66fcf1">${data.dispatch.method || 'simulated'}</strong></div>
+                        </div>
+                    </div>` : '';
+
+                card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 5px;">
+                        <span class="badge" style="background: rgba(102, 252, 241, 0.1); color: #66fcf1; font-family: monospace; padding: 3px 6px; font-size: 9px; margin-bottom: 0;">${data.drone_id || 'EDGE-NODE-UKN'}</span>
+                        ${badgeHtml.replace('margin-bottom: 8px;', 'margin-bottom: 0;').replace('class="badge"', 'class="badge" style="margin-bottom: 0;"')}
+                    </div>
+                    <span style="font-size: 9px; color: #888; font-family: monospace; border: 1px solid rgba(255,255,255,0.1); padding: 3px 6px; border-radius: 4px;">${displayTime}</span>
+                </div>
+                <div class="card-title" style="margin-top: 8px; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center;">
+                    ${data.casualty_status.replace(/_/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase())}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+                <div style="font-size: 0.75rem; color: #aaa; margin-top: 5px; line-height: 1.4;">
+                    ${data.reasoning_summary}
+                </div>
+                ${dispatchHtml}
+                
+                <div class="triage-details" style="display: none; margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
+                    <div class="card-details">
+                        <strong style="color: #fff;">Hazards Detected:</strong> <span style="color: #ff3366;">${(data.environmental_hazards || []).join(', ').toUpperCase() || 'NONE'}</span>
+                    </div>
+                    ${imageHtml}
+                    ${audioHtml}
+                    <div class="json-block" style="margin-top: 15px;">
+                        <pre style="margin: 0; white-space: pre-wrap; font-size: 0.65rem;">${JSON.stringify(displayData, null, 2)}</pre>
+                    </div>
+                </div>
+            `;
+
+                card.onclick = () => {
+                    // Fly to the triage event's GPS location
+                    flyToLocation(data.gps_coordinates || data.location);
+                    const details = card.querySelector('.triage-details');
+                    const chevron = card.querySelector('polyline');
+                    if (details.style.display === 'none') {
+                        details.style.display = 'block';
+                        chevron.setAttribute('points', '18 15 12 9 6 15'); // arrow up
+                    } else {
+                        details.style.display = 'none';
+                        chevron.setAttribute('points', '6 9 12 15 18 9'); // arrow down
+                    }
+                };
+
+                triageFeedObj.prepend(card);
+            }
+        }
+
+        let cmdDb;
+        const dbReq = indexedDB.open("MeshRescueCmdDB", 2);
+        dbReq.onupgradeneeded = (e) => {
+            cmdDb = e.target.result;
+            if (cmdDb.objectStoreNames.contains("historical_logs")) {
+                cmdDb.deleteObjectStore("historical_logs");
+            }
+            if (!cmdDb.objectStoreNames.contains("triage_logs")) {
+                cmdDb.createObjectStore("triage_logs", { autoIncrement: true });
+            }
+            if (!cmdDb.objectStoreNames.contains("telemetry_logs")) {
+                cmdDb.createObjectStore("telemetry_logs", { autoIncrement: true });
+            }
+        };
+        dbReq.onsuccess = (e) => {
+            cmdDb = e.target.result;
+
+            // Load Telemetry (oldest first, prepend reverses order)
+            const txTel = cmdDb.transaction("telemetry_logs", "readonly");
+            txTel.objectStore("telemetry_logs").getAll().onsuccess = (req) => {
+                req.target.result.forEach(log => processMessage(log, false));
+            };
+
+            // Load Triage — clear placeholder first, then replay oldest→newest
+            const txTri = cmdDb.transaction("triage_logs", "readonly");
+            txTri.objectStore("triage_logs").getAll().onsuccess = (req) => {
+                const records = req.target.result;
+                if (records.length > 0) {
+                    // Remove the "Awaiting signals" placeholder if present
+                    const triageFeedObj = document.getElementById('triage-feed');
+                    if (triageFeedObj) triageFeedObj.innerHTML = '';
+                    // Replay in reverse so newest ends up at top (prepend reverses)
+                    [...records].reverse().forEach(log => processMessage(log, false));
+                }
+            };
+        };
+
+
+
+        window.clearDB = function (storeName) {
+            if (!cmdDb) return;
+            if (confirm(`Are you sure you want to permanently wipe the ${storeName}?`)) {
+                const tx = cmdDb.transaction(storeName, "readwrite");
+                tx.objectStore(storeName).clear();
+                tx.oncomplete = () => {
+                    location.reload(); // Reload dashboard to clear UI elements
+                };
+            }
+        };
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeshRescue - Ultimate Tier 1 Sensor Node</title>
+    <style>
+        body { margin: 0; padding: 0; background-color: #111; color: #0f0; font-family: monospace; overflow: hidden; }
+        #video-container { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        video { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 1; transform: scaleX(-1); }
+        /* We use two canvases: one for the video/mask blending, one for drawing the skeletons */
+        #mask_canvas { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 2; transform: scaleX(-1); opacity: 0.5; }
+        #output_canvas { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 3; transform: scaleX(-1); }
+        
+        .overlay { position: absolute; top: 20px; left: 20px; z-index: 10; background: rgba(0, 0, 0, 0.8); padding: 20px; border: 1px solid #0f0; border-radius: 5px; box-shadow: 0 0 10px rgba(0,255,0,0.5); min-width: 300px; }
+        .overlay h2 { margin-top: 0; color: #66fcf1; font-size: 18px; border-bottom: 1px solid #45a29e; padding-bottom: 5px; }
+        .status-box { margin-bottom: 8px; font-size: 13px; display: flex; justify-content: space-between; }
+        .highlight { color: #ff003c; font-weight: bold; text-shadow: 0 0 5px red; }
+        .cyan { color: #00ffff; }
+        
+        .alert-banner { display: none; position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); z-index: 20; background: rgba(255, 0, 60, 0.9); color: white; padding: 20px 40px; font-size: 24px; border: 2px solid white; text-align: center; font-family: sans-serif; text-transform: uppercase; box-shadow: 0 0 30px red; }
+        
+        .loading-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 100; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        .spinner { border: 4px solid #111; border-top: 4px solid #0f0; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div class="loading-screen" id="loading">
+    <div class="spinner"></div>
+    <div>Booting 5 Local AI Models (Vision & Audio)...</div>
+    <div style="font-size: 12px; color: #666; margin-top: 10px;">Please allow Camera & Microphone access</div>
+</div>
+
+<div id="video-container">
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="mask_canvas"></canvas>
+    <canvas id="output_canvas"></canvas>
+    
+    <div class="overlay">
+        <h2 id="drone-header">EDGE-NODE | TIER 1</h2>
+        <div class="status-box"><span>Environment:</span> <span id="env-class" class="cyan">SCANNING...</span></div>
+        <div class="status-box"><span>Audio Match:</span> <span id="audio-class" class="cyan">SCANNING...</span></div>
+        <div class="status-box"><span>Posture:</span> <span id="posture-out">SCANNING...</span></div>
+        <div class="status-box"><span>Hand Tracking:</span> <span id="hand-out">0 Hands</span></div>
+        <div class="status-box"><span>Segmentation:</span> <span style="color:#0f0">Active (Overlay)</span></div>
+        
+        <div class="status-box" style="margin-top: 15px; border-top: 1px dashed #0f0; padding-top: 10px;">
+            <span>Instinct Gate:</span> <span id="gate-status">Waiting</span>
+        </div>
+        <div class="status-box">
+            <span>Gemma 4 E2B:</span> <span id="tier2-status" style="color: #aaa;">Asleep</span>
+        </div>
+        <div class="status-box" style="margin-top: 10px; background: rgba(0,0,0,0.8); border: 1px solid #ffcc00; padding: 10px; flex-direction: column; align-items: stretch;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="color: #ffcc00; font-weight: bold;">Offline Queue: <span id="queue-count">0</span></span>
+            </div>
+            <div style="display: flex; gap: 5px; width: 100%;">
+                <button onclick="manualSync()" style="background: #ffcc00; color: #000; border: none; padding: 8px; border-radius: 4px; font-weight: bold; cursor: pointer; flex: 1;">SYNC VIA LORA</button>
+                <button onclick="clearQueue()" style="background: rgba(255, 51, 102, 0.2); color: #ff3366; border: 1px solid rgba(255,51,102,0.5); padding: 8px; border-radius: 4px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Wipe Queue">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="alert-banner" id="alert-banner">
+        GATE TRIGGERED<br>
+        <span style="font-size: 14px; opacity: 0.8;">WAKING GEMMA 4 E2B (TIER 2)...</span>
+    </div>
+</div>
+
+<script type="module">
+import {
+    FilesetResolver,
+    PoseLandmarker,
+    HandLandmarker,
+    GestureRecognizer,
+    ImageClassifier,
+    ImageSegmenter,
+    DrawingUtils
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12";
+import { AudioClassifier, FilesetResolver as AudioFilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-audio@0.10.0";
+
+const video = document.getElementById("webcam");
+const canvasElement = document.getElementById("output_canvas");
+const canvasCtx = canvasElement.getContext("2d");
+const maskCanvas = document.getElementById("mask_canvas");
+const maskCtx = maskCanvas.getContext("2d");
+
+const postureOut = document.getElementById("posture-out");
+const handOut = document.getElementById("hand-out");
+const envClassOut = document.getElementById("env-class");
+const audioClassOut = document.getElementById("audio-class");
+const gateStatus = document.getElementById("gate-status");
+const tier2Status = document.getElementById("tier2-status");
+const alertBanner = document.getElementById("alert-banner");
+const loadingScreen = document.getElementById("loading");
+
+let poseLandmarker, gestureRecognizer, imageClassifier, imageSegmenter, audioClassifier;
+let runningMode = "VIDEO";
+let lastVideoTime = -1;
+let isWakingGemma = false;
+let triggerFrameCount = 0;
+let lastTelemetryState = "";
+let audioCtx;
+let currentLocation = "Locating GPS...";
+let gpsResolved = false; // True only when real GPS gave us a fix
+
+if (navigator.geolocation) {
+    navigator.geolocation.watchPosition(
+        (pos) => {
+            // Real GPS success — upgrade location from .env baseline
+            currentLocation = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
+            gpsResolved = true;
+        },
+        (err) => {
+            // Only hard-fail on PERMISSION_DENIED (code 1).
+            // kCLErrorLocationUnknown maps to POSITION_UNAVAILABLE (code 2) — just retry.
+            if (err.code === 1) {
+                currentLocation = "GPS Denied";
+            }
+            // code 2/3 = transient error; keep current .env baseline and let watchPosition retry.
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+}
+
+let db;
+const request = indexedDB.open("MeshRescueEdgeDB", 1);
+request.onupgradeneeded = (e) => {
+    db = e.target.result;
+    db.createObjectStore("triage_queue", { autoIncrement: true });
+};
+request.onsuccess = (e) => { 
+    db = e.target.result; 
+    updateQueueCount();
+};
+
+function updateQueueCount() {
+    if (!db) return;
+    const tx = db.transaction("triage_queue", "readonly");
+    const countReq = tx.objectStore("triage_queue").count();
+    countReq.onsuccess = () => {
+        const el = document.getElementById('queue-count');
+        if (el) el.innerText = countReq.result;
+    };
+}
+
+function getDeviceId() {
+    let mac = localStorage.getItem('mesh_device_mac');
+    if (!mac) {
+        const hex = () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0').toUpperCase();
+        mac = `${hex()}:${hex()}:${hex()}:${hex()}:${hex()}:${hex()}`;
+        localStorage.setItem('mesh_device_mac', mac);
+    }
+    const osType = navigator.platform || 'NODE';
+    return `EDGE-NODE [${mac}]`;
+}
+
+async function sendTelemetry(posture, hand, env, audio, status) {
+    const stateStr = `${posture} | ${hand} | ${env} | ${audio}`;
+    if (stateStr === lastTelemetryState) return;
+    lastTelemetryState = stateStr;
+    try {
+        fetch(`${droneConfig.commander_hub_url}/api/telemetry`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                posture: stateStr, 
+                location: currentLocation,
+                status: status,
+                drone_id: getDeviceId(),
+                raw_data: { posture, hand, env, audio, timestamp: Date.now() }
+            })
+        });
+    } catch(e) {}
+}
+
+function logDebug(msg) {
+    console.log(msg);
+    const debugDiv = document.getElementById("debug-log") || (() => {
+        const d = document.createElement("div");
+        d.id = "debug-log";
+        d.style.cssText = "margin-top: 20px; font-size: 10px; color: #aaa; max-width: 80%; word-wrap: break-word; text-align: left;";
+        loadingScreen.appendChild(d);
+        return d;
+    })();
+    debugDiv.innerHTML += `<div>[${new Date().toISOString().split('T')[1].split('.')[0]}] ${msg}</div>`;
+}
+
+let droneConfig = {
+    auto_trigger_period_sec: 10,
+    commander_hub_url: "http://localhost:8000",
+    edge_location: "Unknown Location",
+    enable_pose: true,
+    enable_hand: true,
+    enable_audio: true,
+    enable_env: true
+};
+
+async function initializeAllModels() {
+    try {
+        // 1. Fetch Edge Configuration from backend .env
+        try {
+            const res = await fetch('/api/config');
+            if (res.ok) {
+                droneConfig = await res.json();
+                console.log("Loaded Edge Config:", droneConfig);
+                // Immediately apply .env baseline — real GPS will upgrade this if it resolves.
+                if (!gpsResolved) {
+                    currentLocation = droneConfig.edge_location || "34.05220, -118.24370";
+                }
+            }
+        } catch(e) {
+            console.warn("Failed to load /api/config, using defaults.");
+        }
+
+        const header = document.getElementById("drone-header");
+        if (header) {
+            header.innerText = `${getDeviceId()} | TIER 1`;
+        }
+
+        // 2. Start the 60-second background auto-sync loop
+        setInterval(() => {
+            if (navigator.onLine && db) {
+                console.log("Network online. Auto-flushing offline queue...");
+                window.manualSync(true); // silent sync
+            }
+        }, 60000);
+
+        
+        logDebug("Initializing FilesetResolver for Vision v0.10.12...");
+        const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/wasm");
+        
+        logDebug("Loading PoseLandmarker...");
+        poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`, delegate: "GPU" },
+            runningMode: runningMode, numPoses: 1
+        });
+
+        logDebug("Loading GestureRecognizer...");
+        gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task`, delegate: "GPU" },
+            runningMode: runningMode, numHands: 2
+        });
+
+        logDebug("Loading ImageClassifier...");
+        imageClassifier = await ImageClassifier.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite`, delegate: "GPU" },
+            runningMode: runningMode, maxResults: 1
+        });
+
+        logDebug("Loading ImageSegmenter...");
+        imageSegmenter = await ImageSegmenter.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite`, delegate: "GPU" },
+            runningMode: runningMode, outputCategoryMask: true
+        });
+
+        logDebug("Vision models loaded. Loading Audio...");
+        try {
+            const audio = await AudioFilesetResolver.forAudioTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-audio@0.10.0/wasm");
+            audioClassifier = await AudioClassifier.createFromOptions(audio, {
+                baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/audio_classifier/yamnet/float32/1/yamnet.tflite` }
+            });
+            logDebug("Audio models loaded successfully.");
+        } catch (e) {
+            logDebug(`Audio model skipped (Error: ${e.message})`);
+            audioClassOut.innerText = "Audio Disabled";
+        }
+
+        logDebug("Starting sensors...");
+        startSensors();
+    } catch (e) {
+        logDebug(`<span style="color:red">FATAL ERROR: ${e.message}</span>`);
+    }
+}
+
+async function startSensors() {
+    let stream;
+    try {
+        // Try with Audio first
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
+    } catch(e) {
+        console.warn("No microphone detected or permission denied. Trying video only.");
+        try {
+            // Fallback to Video only
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            audioClassOut.innerText = "No Mic";
+        } catch(e2) {
+            loadingScreen.innerHTML = `<div style="color:red">Camera permission denied.</div>`;
+            return;
+        }
+    }
+
+    video.srcObject = stream;
+    window.globalAudioStream = stream;
+    video.addEventListener("loadeddata", predictWebcam);
+
+    // Setup Live Speech Transcription
+    let latestTranscript = "";
+    if ('webkitSpeechRecognition' in window) {
+        const recognition = new webkitSpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.onresult = (event) => {
+            let t = "";
+            for (let i = Math.max(event.resultIndex - 2, 0); i < event.results.length; ++i) {
+                t += event.results[i][0].transcript;
+            }
+            latestTranscript = t.trim();
+        };
+        recognition.onend = () => { setTimeout(() => { try { recognition.start(); } catch(e){} }, 1000); };
+        try { recognition.start(); } catch(e){}
+    }
+
+    // Setup Audio Stream Processing if available
+    if (audioClassifier && stream.getAudioTracks().length > 0) {
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+            const source = audioCtx.createMediaStreamSource(stream);
+            const scriptNode = audioCtx.createScriptProcessor(16384, 1, 1);
+            source.connect(scriptNode);
+            scriptNode.connect(audioCtx.destination);
+            scriptNode.onaudioprocess = function(audioProcessingEvent) {
+                if (audioCtx.state === "suspended") {
+                    audioClassOut.innerText = "Click page to enable Mic!";
+                    return;
+                }
+                
+                const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+                const audioResult = audioClassifier.classify(inputData);
+                if (audioResult && audioResult.length > 0 && audioResult[0].classifications.length > 0) {
+                    const bestMatch = audioResult[0].classifications[0].categories[0];
+                    // Lowered threshold to 0.1 to make it highly sensitive
+                    if (bestMatch.score > 0.1) { 
+                        let t = latestTranscript ? ` ("${latestTranscript}")` : "";
+                        audioClassOut.innerText = bestMatch.categoryName + t;
+                        if(["Scream", "Crying, sobbing", "Glass", "Explosion"].some(v => bestMatch.categoryName.includes(v))) {
+                            audioClassOut.className = "highlight";
+                        } else {
+                            audioClassOut.className = "cyan";
+                        }
+                    }
+                }
+            };
+            
+            // Browsers block audio processing until user interacts with the page
+            document.body.addEventListener('click', () => {
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                    console.log("AudioContext resumed by user click!");
+                }
+            });
+            
+        } catch(e) {
+            console.warn("Audio processing failed", e);
+        }
+    }
+
+    loadingScreen.style.display = "none";
+}
+
+function predictWebcam() {
+    canvasElement.width = video.videoWidth;
+    canvasElement.height = video.videoHeight;
+    maskCanvas.width = video.videoWidth;
+    maskCanvas.height = video.videoHeight;
+    
+    if (lastVideoTime !== video.currentTime) {
+        lastVideoTime = video.currentTime;
+        const now = performance.now();
+        
+        // 1. Run Classification
+        const classResult = imageClassifier.classifyForVideo(video, now);
+        let envClass = "Unknown";
+        if (classResult.classifications.length > 0) {
+            envClass = classResult.classifications[0].categories[0].categoryName;
+            envClassOut.innerText = envClass;
+        }
+
+        // 2. Run Segmentation (Async callback style)
+        imageSegmenter.segmentForVideo(video, now, (segmentationResult) => {
+            if (segmentationResult.categoryMask) {
+                const mask = segmentationResult.categoryMask;
+                const maskArray = mask.getAsUint8Array();
+                
+                // Ensure mask canvas matches mask dimensions for putImageData
+                if (maskCanvas.width !== mask.width) {
+                    maskCanvas.width = mask.width;
+                    maskCanvas.height = mask.height;
+                }
+
+                const imageData = maskCtx.createImageData(mask.width, mask.height);
+                for (let i = 0; i < maskArray.length; i++) {
+                    // Selfie segmenter: 0 is background, >0 is person
+                    const isBackground = maskArray[i] === 0;
+                    imageData.data[i * 4 + 0] = isBackground ? 255 : 0; // Red
+                    imageData.data[i * 4 + 1] = 0;
+                    imageData.data[i * 4 + 2] = 0;
+                    imageData.data[i * 4 + 3] = isBackground ? 120 : 0; // Alpha
+                }
+                maskCtx.putImageData(imageData, 0, 0);
+                mask.close(); // Free WASM memory
+            }
+
+            // 3. Run Pose & Hand Tracking
+            const poseResult = poseLandmarker.detectForVideo(video, now);
+            const handResult = gestureRecognizer.recognizeForVideo(video, now);
+            
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            const drawingUtils = new DrawingUtils(canvasCtx);
+            
+            let currentPosture = "NO_SUBJECT";
+            
+            // Draw Hands & Extract Gesture
+            let handStatusText = `${handResult.landmarks.length} Hands`;
+            if (handResult.landmarks.length > 0 && handResult.gestures.length > 0 && handResult.gestures[0].length > 0) {
+                const gesture = handResult.gestures[0][0];
+                if (gesture.categoryName !== "None") {
+                    handStatusText = `${gesture.categoryName} (${Math.round(gesture.score * 100)}%)`;
+                }
+            }
+            handOut.innerText = handStatusText;
+
+            for (const landmarks of handResult.landmarks) {
+                drawingUtils.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, { color: "#00ffff", lineWidth: 3 });
+                drawingUtils.drawLandmarks(landmarks, { color: "#ff003c", radius: 2 });
+            }
+
+            // Draw Pose
+            if (poseResult.landmarks.length > 0) {
+                const landmark = poseResult.landmarks[0];
+                drawingUtils.drawLandmarks(landmark, { radius: 3, color: '#00FF00' });
+                drawingUtils.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 2 });
+                
+                const isHorizontal = Math.abs(landmark[0].y - landmark[27].y) < 0.3;
+                currentPosture = isHorizontal ? "SUPINE" : "UPRIGHT";
+            }
+            
+            canvasCtx.restore();
+            
+            // 4. Fusion Gate Logic
+            analyzeScene(currentPosture, envClass, audioClassOut.innerText, poseResult.landmarks[0] || null);
+        });
+    }
+    
+    window.requestAnimationFrame(predictWebcam);
+}
+
+let globalLatestState = {
+    poseLandmarks: [],
+    posture: "Unknown",
+    handStr: "0 Hands",
+    env: "Unknown",
+    audio: "Unknown"
+};
+
+function analyzeScene(posture, env, audio, poseLandmarks) {
+    if (isWakingGemma) return; 
+
+    const handStr = handOut.innerText;
+    globalLatestState = { poseLandmarks, posture, handStr, env, audio };
+
+    // Complex Gate logic combining all sensors
+    const isLyingDown = posture === "SUPINE";
+    const audioLower = audio.toLowerCase();
+    const isScreaming = audioLower.includes("scream") || 
+                        audioLower.includes("cry") || 
+                        audioLower.includes("siren") || 
+                        audioLower.includes("alarm") || 
+                        audioLower.includes("police") || 
+                        audioLower.includes("ambulance") ||
+                        audioLower.includes("sound effect") ||
+                        audioLower.includes("help") ||
+                        audioLower.includes("stuck") ||
+                        audioLower.includes("save me");
+    const isWaving = handStr.includes("Open_Palm") || handStr.includes("Victory");
+    
+    const isDanger = isLyingDown || isScreaming || isWaving;
+    
+    postureOut.innerText = posture;
+    postureOut.className = isDanger ? "highlight" : "";
+    
+    if (isDanger) {
+        triggerFrameCount++;
+        sendTelemetry(posture, handStr, env, audio, "danger");
+        
+        if (triggerFrameCount > 15) {
+            triggerGemma(poseLandmarks, posture, handStr, env, audio);
+        } else {
+            gateStatus.innerText = `Arming... (${Math.round(triggerFrameCount/15 * 100)}%)`;
+        }
+    } else {
+        triggerFrameCount = 0;
+        gateStatus.innerText = "Waiting";
+        sendTelemetry(posture, handStr, env, audio, "safe");
+    }
+}
+
+async function triggerGemma(poseData, posture, handStr, env, audio) {
+    isWakingGemma = true;
+    gateStatus.innerText = "TRIPPED";
+    gateStatus.className = "highlight";
+    tier2Status.innerText = "RECORDING 8s AUDIO...";
+    tier2Status.style.color = "#ffcc00";
+    alertBanner.style.display = "block";
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = video.videoWidth;
+    tempCanvas.height = video.videoHeight;
+    tempCanvas.getContext('2d').drawImage(video, 0, 0);
+    const base64Image = tempCanvas.toDataURL('image/jpeg', 0.8);
+
+    const payload = {
+        packet_id: "triage-" + Date.now(),
+        image: base64Image, 
+        drone_id: getDeviceId(),
+        location: currentLocation,   // top-level: validated by backend, overrides pose_data
+        pose_data: {
+            landmarks: poseData,
+            posture: posture,
+            hand_gesture: handStr,
+            environment: env,
+            audio: audio,
+            location: currentLocation  // keep in pose_data for prompt context
+        } 
+    };
+
+    const finalizeAndSave = async () => {
+        try {
+            // 1. Ask Edge CPU to run Gemma reasoning locally
+            const analyzeRes = await fetch(`${droneConfig.commander_hub_url}/api/analyze_only`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            if (!analyzeRes.ok) throw new Error("Analysis failed");
+            const resultData = await analyzeRes.json();
+            const gemmaResult = resultData.data;
+            const priorityLevel = parseInt(gemmaResult.priority_level) || 5;
+            
+            // 2. PHASE 1 — LoRa: For critical/high/moderate events (priority ≤ 3),
+            //    instantly broadcast a TEXT-ONLY stub over the low-bandwidth LoRa mesh.
+            //    The commander creates a skeleton card immediately with this packet_id.
+            if (priorityLevel <= 3) {
+                tier2Status.innerText = "LORA: TRANSMITTING CRITICAL ALERT...";
+                try {
+                    await fetch(`${droneConfig.commander_hub_url}/api/lora_broadcast`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ data: gemmaResult })
+                    });
+                } catch(e) {
+                    console.warn("LoRa broadcast failed:", e);
+                }
+            }
+            
+            // 3. PHASE 2 — WiFi: Send FULL multimedia payload (image + audio).
+            //    If the commander already has a card from the LoRa stub (same packet_id),
+            //    it will UPDATE that card with the image and audio rather than create a new one.
+            //    For low-priority events (4-5), this is the first and only broadcast.
+            if (navigator.onLine) {
+                tier2Status.innerText = "WIFI: UPLOADING FULL EVIDENCE...";
+                try {
+                    await fetch(`${droneConfig.commander_hub_url}/api/wifi_broadcast`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ data: gemmaResult })
+                    });
+                    tier2Status.innerText = "EVIDENCE UPLOADED ✓";
+                } catch(e) {
+                    console.warn("WiFi broadcast failed — evidence saved to offline queue.", e);
+                }
+            }
+            
+            // 4. OFFLINE QUEUE — Always save the full payload locally.
+            //    Use manualSync() later when WiFi becomes available to flush queued events.
+            if (db) {
+                const tx = db.transaction("triage_queue", "readwrite");
+                tx.objectStore("triage_queue").add(gemmaResult);
+                tx.oncomplete = () => {
+                    tier2Status.innerText = "SAVED FULL MEDIA TO QUEUE";
+                    updateQueueCount();
+                };
+            }
+        } catch(err) {
+            console.error(err);
+            tier2Status.innerText = "GEMMA FAILURE";
+            tier2Status.style.color = "red";
+        }
+
+        setTimeout(() => {
+            isWakingGemma = false;
+            triggerFrameCount = 0;
+            alertBanner.style.display = "none";
+            gateStatus.innerText = "Waiting";
+            gateStatus.className = "";
+            tier2Status.innerText = "Asleep";
+            tier2Status.style.color = "#aaa";
+        }, 3000); 
+    };
+
+    if (window.globalAudioStream && window.globalAudioStream.getAudioTracks().length > 0) {
+        try {
+            const mediaRecorder = new MediaRecorder(window.globalAudioStream);
+            const audioChunks = [];
+            
+            mediaRecorder.addEventListener("dataavailable", event => {
+                audioChunks.push(event.data);
+            });
+            
+            mediaRecorder.addEventListener("stop", () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const reader = new FileReader();
+                reader.readAsDataURL(audioBlob);
+                reader.onloadend = () => {
+                    payload.audio_clip = reader.result;
+                    tier2Status.innerText = "AUDIO CAPTURED. SAVING...";
+                    finalizeAndSave();
+                };
+            });
+            
+            mediaRecorder.start();
+            setTimeout(() => {
+                if (mediaRecorder.state === "recording") {
+                    mediaRecorder.stop();
+                }
+            }, 8000);
+        } catch(err) {
+            console.error("Audio recording failed", err);
+            finalizeAndSave();
+        }
+    } else {
+        finalizeAndSave();
+    }
+}
+
+window.manualSync = function(silent = false) {
+    if (!navigator.onLine) {
+        if (!silent) alert("⚠️ No Wi-Fi/Network Connection detected. Cannot flush heavy multimedia payloads over LoRa. Please connect to a high-bandwidth network and try again.");
+        return;
+    }
+    
+    if (!db) return;
+    const btn = document.querySelector('button');
+    if (!silent) btn.innerText = "SYNCING...";
+    
+    const tx = db.transaction("triage_queue", "readwrite");
+    const store = tx.objectStore("triage_queue");
+    const req = store.getAll();
+    
+    req.onsuccess = async () => {
+        const items = req.result;
+        if (items.length === 0) {
+            if (!silent) btn.innerText = "SYNC VIA LORA";
+            return;
+        }
+        
+        for (const payload of items) {
+            try {
+                await fetch(`${droneConfig.commander_hub_url}/api/wifi_broadcast`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ data: payload })
+                });
+            } catch(e) {
+                console.error("Sync failed for a payload", e);
+            }
+        }
+        
+        // Clear the store after processing
+        const clearTx = db.transaction("triage_queue", "readwrite");
+        clearTx.objectStore("triage_queue").clear();
+        clearTx.oncomplete = () => {
+            updateQueueCount();
+            if (!silent) {
+                btn.innerText = "SYNC VIA LORA";
+                tier2Status.innerText = `SYNCED ${items.length} EVENT(S) TO HUB`;
+                tier2Status.style.color = "#00ff9d";
+                setTimeout(() => {
+                    tier2Status.innerText = "Asleep";
+                    tier2Status.style.color = "#aaa";
+                }, 3000);
+            }
+        };
+    };
+};
+
+window.clearQueue = function() {
+    if (!db) return;
+    if (confirm("Are you sure you want to completely wipe the offline queue? This data will be lost forever if it hasn't been synced.")) {
+        const clearTx = db.transaction("triage_queue", "readwrite");
+        clearTx.objectStore("triage_queue").clear();
+        clearTx.oncomplete = () => {
+            updateQueueCount();
+            tier2Status.innerText = "QUEUE WIPED";
+            tier2Status.style.color = "#ff3366";
+            setTimeout(() => {
+                tier2Status.innerText = "Asleep";
+                tier2Status.style.color = "#aaa";
+            }, 3000);
+        };
+    }
+};
+
+initializeAllModels();
+
+// Start dynamic loop when models are loaded
+setTimeout(() => {
+    setInterval(() => {
+        if (isWakingGemma) return;
+        if (globalLatestState.posture === "Unknown") return; // Sensors not fully spun up yet
+        console.log("Auto-capturing scene for routine LLM analysis...");
+        triggerGemma(
+            globalLatestState.poseLandmarks, 
+            globalLatestState.posture, 
+            globalLatestState.handStr, 
+            globalLatestState.env, 
+            globalLatestState.audio
+        );
+    }, droneConfig.auto_trigger_period_sec * 1000);
+}, 5000);
+
+</script>
+</body>
+</html>
